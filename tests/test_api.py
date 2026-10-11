@@ -1,8 +1,16 @@
 """Parsing tests for the cloud API wrapper, using replies seen from an ARC6."""
 
-from unittest.mock import AsyncMock
+import base64
+import json
+import urllib.parse
+from unittest.mock import AsyncMock, MagicMock
+
+import aiohttp
+import pytest
+from pyrainbird.cloud.stream import API_HOST
 
 from custom_components.rainbird_cloud.api import RainbirdCloudApi, Station
+from custom_components.rainbird_cloud.stream import RainbirdStream, StreamClosed
 
 RUN_STATUS = [
     {
@@ -49,3 +57,65 @@ async def test_rain_sensor_detection() -> None:
         }
     ]
     assert await api.has_rain_sensor()
+    assert await api.rain_sensor_state() is False
+    api._client.get_sensor_list.return_value[0]["onOffState"] = 1
+    assert await api.rain_sensor_state() is True
+
+
+def test_stream_handshake() -> None:
+    """The handshake uses padded standard base64 and 'Authorization' keys."""
+    stream = RainbirdStream(AsyncMock(), 721646, "uuid-1", AsyncMock())
+    url = stream._get_connection_url("tok+/=")
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+    header = json.loads(base64.b64decode(query["header"][0], validate=True))
+    assert header == {"host": API_HOST, "Authorization": "tok+/="}
+    assert query["payload"] == ["e30="]
+    auth = stream._start_message("tok")["payload"]["extensions"]["authorization"]
+    assert auth == {"host": API_HOST, "Authorization": "tok"}
+
+
+async def test_stream_listen() -> None:
+    """The stream subscribes after the ack and yields station events."""
+    data = {
+        "type": "data",
+        "payload": {
+            "data": {
+                "onUpdateDeviceStateTable": {
+                    "PK": "uuid-1",
+                    "SK": "Station1",
+                    "Data": json.dumps({"state": 1, "remainSec": 300}),
+                    "TimeStamp": 1791712800,
+                }
+            }
+        },
+    }
+    incoming = [{"type": "connection_ack"}, {"type": "start_ack"}, {"type": "ka"}, data]
+    ws = MagicMock()
+    ws.send_json = AsyncMock()
+    ws.receive = AsyncMock(
+        side_effect=[
+            *(
+                MagicMock(type=aiohttp.WSMsgType.TEXT, json=lambda m=m: m)
+                for m in incoming
+            ),
+            MagicMock(type=aiohttp.WSMsgType.CLOSED),
+        ]
+    )
+    session = MagicMock()
+    session.ws_connect.return_value.__aenter__.return_value = ws
+    provider = AsyncMock()
+    provider.async_get_token.return_value = "tok"
+    stream = RainbirdStream(provider, 721646, "uuid-1", session)
+
+    events = []
+    with pytest.raises(StreamClosed):
+        async for event in stream.listen():
+            events.append(event)
+
+    assert [m.args[0]["type"] for m in ws.send_json.call_args_list] == [
+        "connection_init",
+        "start",
+    ]
+    assert len(events) == 1
+    assert events[0].zone == 1
+    assert events[0].is_watering

@@ -27,7 +27,6 @@ from pyrainbird.cloud.models import (
     RainSensorStateEvent,
     StationStateEvent,
 )
-from pyrainbird.cloud.stream import AsyncRainbirdCloudStream
 from pyrainbird.exceptions import (
     RainbirdApiException,
     RainbirdAuthException,
@@ -36,13 +35,19 @@ from pyrainbird.exceptions import (
 
 from .api import CloudState, Program, RainbirdCloudApi
 from .const import DOMAIN, MANUFACTURER, TIMEOUT_SECONDS
+from .stream import RainbirdStream
 
 _LOGGER = logging.getLogger(__name__)
 
 UPDATE_INTERVAL = datetime.timedelta(minutes=1)
 # The cloud takes a few seconds to reflect a start or stop.
 DEBOUNCER_COOLDOWN = 10
-STREAM_RETRY = 60
+# Reconnect delays: quick after a dropped connection, backing off to
+# STREAM_RETRY_MAX while the server keeps refusing.
+STREAM_RETRY = 10
+STREAM_RETRY_MAX = 900
+# A connection that lasted this long counts as healthy.
+STREAM_HEALTHY = 300
 
 
 @dataclass
@@ -133,7 +138,9 @@ class RainbirdCloudCoordinator(DataUpdateCoordinator[CloudState]):
             base,
             active_zones=active,
             remaining=remaining,
-            rain_sensor=self._rain_sensor,
+            rain_sensor=(
+                self._rain_sensor if self._rain_sensor is not None else base.rain_sensor
+            ),
             online=self._online,
         )
 
@@ -180,21 +187,28 @@ class RainbirdCloudCoordinator(DataUpdateCoordinator[CloudState]):
         if not self.api.device_uuid:
             _LOGGER.warning("No device id for %s; live updates disabled", self.name)
             return
-        stream = AsyncRainbirdCloudStream(
+        stream = RainbirdStream(
             self.api.token_provider,
             self.api.satellite_id,
             self.api.device_uuid,
             async_get_clientsession(self.hass),
         )
+        delay = STREAM_RETRY
         while True:
+            started = self.hass.loop.time()
             try:
                 async for event in stream.listen():
                     self._handle_event(event)
             except asyncio.CancelledError:
                 raise
             except Exception as err:  # noqa: BLE001 - keep the stream alive
-                _LOGGER.warning("Rain Bird live stream stopped (%s); retrying", err)
-            await asyncio.sleep(STREAM_RETRY)
+                if self.hass.loop.time() - started >= STREAM_HEALTHY:
+                    delay = STREAM_RETRY
+                # Warn once per outage, not on every retry.
+                log = _LOGGER.warning if delay == STREAM_RETRY else _LOGGER.debug
+                log("Rain Bird live stream stopped (%s); retrying in %ss", err, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 3, STREAM_RETRY_MAX)
 
     @callback
     def _handle_event(self, event: object) -> None:

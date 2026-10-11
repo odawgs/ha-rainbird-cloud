@@ -15,7 +15,7 @@ Shared as is. Issues are not monitored.
 - **Rain sensor**, when the controller has one wired.
 - **Watering now** and **Time remaining** sensors.
 
-Live zone and rain sensor state come from Rain Bird's real-time feed, the same one the app uses. Rain delay is polled every minute.
+Live zone and rain sensor changes come from Rain Bird's real-time feed, the same one the app uses. Rain delay and the rain sensor are also polled every minute.
 
 ## Install
 
@@ -28,3 +28,4 @@ Live zone and rain sensor state come from Rain Bird's real-time feed, the same o
 - It needs the internet and Rain Bird's servers. If either is down, Home Assistant can't control the controller.
 - This uses Rain Bird's unofficial cloud interface, through [pyrainbird](https://github.com/allenporter/pyrainbird). Rain Bird can change or close it at any time.
 - Turning off any zone stops all watering, because that's what the controller supports.
+- The rain sensor's polled value is read from an undocumented field (non-zero is treated as wet). The real-time feed corrects it when the sensor changes.

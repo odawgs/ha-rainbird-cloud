@@ -6,8 +6,8 @@ for an ARC controller on firmware 4.103:
   while a manual run is watering, so live zone state comes from the AppSync
   stream (see coordinator.py), not from polling;
 - Satellite/isConnected returns an empty list for an online controller;
-- the sensor list's "onOffState" is not documented as wet/dry, so the rain
-  sensor's state also comes from the stream.
+- the sensor list's "onOffState" is undocumented; it is read as the rain
+  sensor's state (non-zero = wet) until the stream reports a change.
 This module reads the raw replies itself.
 """
 
@@ -162,6 +162,7 @@ class RainbirdCloudApi:
 
         sat = await self.satellite()
         state.rain_delay_days = self._rain_delay_days(sat)
+        state.rain_sensor = await self.rain_sensor_state()
         return state
 
     @staticmethod
@@ -178,13 +179,23 @@ class RainbirdCloudApi:
         remaining = start + delay - datetime.datetime.now(datetime.UTC)
         return max(0, math.ceil(remaining.total_seconds() / 86400))
 
-    async def has_rain_sensor(self) -> bool:
-        """Return True when the controller lists a rain sensor."""
+    async def _rain_sensor(self) -> dict[str, Any] | None:
         for sensor in await self._client.get_sensor_list(self.satellite_id):
             text = f"{sensor.get('name', '')} {sensor.get('model', '')}".lower()
             if sensor.get("type") == "Rain" or "rain" in text:
-                return True
-        return False
+                return sensor
+        return None
+
+    async def has_rain_sensor(self) -> bool:
+        """Return True when the controller lists a rain sensor."""
+        return await self._rain_sensor() is not None
+
+    async def rain_sensor_state(self) -> bool | None:
+        """Return True when the rain sensor reads wet, None if unknown."""
+        sensor = await self._rain_sensor()
+        if sensor is None or not isinstance(sensor.get("onOffState"), int):
+            return None
+        return sensor["onOffState"] != 0
 
     async def start_zone(self, zone: int, minutes: int) -> None:
         """Run one zone for the given minutes."""

@@ -27,7 +27,7 @@ def mock_api():
             new=init_cls,
         ),
         patch(
-            "custom_components.rainbird_cloud.coordinator.AsyncRainbirdCloudStream"
+            "custom_components.rainbird_cloud.coordinator.RainbirdStream"
         ) as stream_cls,
     ):
         api = init_cls.return_value
