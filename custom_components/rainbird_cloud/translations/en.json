@@ -1,0 +1,62 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "This controller is already set up.",
+      "reauth_successful": "Signed in again."
+    },
+    "error": {
+      "cannot_connect": "Could not reach Rain Bird's servers. Try again shortly.",
+      "invalid_auth": "Rain Bird rejected that email or password.",
+      "no_controllers": "No controllers were found on this Rain Bird account."
+    },
+    "step": {
+      "user": {
+        "title": "Sign in to Rain Bird",
+        "description": "Use the email and password you sign in to the Rain Bird 2.0 app with.",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      },
+      "controller": {
+        "title": "Choose a controller",
+        "data": {
+          "satellite_id": "Controller"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in to Rain Bird again",
+        "description": "Rain Bird rejected the saved password for {username}.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Rain Bird Cloud options",
+        "data": {
+          "duration": "Watering time when a zone is turned on"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "rain_sensor": { "name": "Rain sensor" }
+    },
+    "button": {
+      "stop_all": { "name": "Stop watering" },
+      "run_program": { "name": "Run {program}" }
+    },
+    "number": {
+      "rain_delay": { "name": "Rain delay" }
+    },
+    "sensor": {
+      "active_zone": { "name": "Watering now" },
+      "remaining": { "name": "Time remaining" }
+    }
+  }
+}
